@@ -215,15 +215,14 @@ def status():
         cfg  = cam_config.get(cid, {})
         name = d.get("matched_name")
 
-        # sound priority: camera sound > person sound > None (JS plays default beep)
-        cam_snd = f"/cam_sound/{cid}" if get_cam_sound_path(cid) else None
+        # person's custom sound if set; otherwise JS uses TTS as general voice
         per_snd = None
         if name:
             for ext in (".mp3", ".wav", ".ogg", ".m4a"):
                 if (FACES_DIR / name / f"sound{ext}").exists():
                     per_snd = f"/faces/{name}/sound"
                     break
-        sound_url = cam_snd or per_snd
+        sound_url = per_snd
 
         cameras.append({
             "cam_id":       cid,
