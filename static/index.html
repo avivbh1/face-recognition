@@ -90,6 +90,12 @@
     .ep-track { height: 5px; background: #1e1e30; border-radius: 3px; overflow: hidden; }
     .ep-fill  { height: 100%; background: var(--yellow); border-radius: 3px; transition: width .3s; }
 
+    /* pip button */
+    .btn-icon.pip-active {
+      color: var(--accent);
+      background: rgba(108,99,255,.18);
+    }
+
     /* cam sound upload */
     .cam-sound-btn {
       background: none; border: 1px solid var(--border);
@@ -248,6 +254,57 @@ let alertTimer  = null;
 let currentAudio = null;
 let cameras = [];  // [{id, label, has_sound}]
 
+// ── picture-in-picture ─────────────────────────────────────────────────────────
+const pipVideos = {};   // cam_id → <video>
+
+function setupPiP(camId) {
+  if (!document.pictureInPictureEnabled) return;
+
+  const btn   = document.getElementById(`pip-${camId}`);
+  const imgEl = document.querySelector(`#cam-card-${camId} .cam-feed img`);
+  btn.style.display = '';
+
+  const canvas = document.createElement('canvas');
+  const video  = document.createElement('video');
+  video.muted = true;
+  video.style.display = 'none';
+  document.body.appendChild(video);
+  pipVideos[camId] = video;
+
+  // mirror MJPEG img → canvas on every animation frame
+  ;(function draw() {
+    if (imgEl.naturalWidth > 0) {
+      if (canvas.width !== imgEl.naturalWidth) {
+        canvas.width  = imgEl.naturalWidth;
+        canvas.height = imgEl.naturalHeight;
+      }
+      canvas.getContext('2d').drawImage(imgEl, 0, 0);
+    }
+    requestAnimationFrame(draw);
+  })();
+
+  video.srcObject = canvas.captureStream(25);
+  video.play().catch(() => {});
+
+  video.addEventListener('enterpictureinpicture', () => {
+    btn.classList.add('pip-active'); btn.title = 'Close popup';
+  });
+  video.addEventListener('leavepictureinpicture', () => {
+    btn.classList.remove('pip-active'); btn.title = 'Pop out camera';
+  });
+
+  btn.addEventListener('click', async () => {
+    try {
+      if (document.pictureInPictureElement === video) {
+        await document.exitPictureInPicture();
+      } else {
+        if (document.pictureInPictureElement) await document.exitPictureInPicture();
+        await video.requestPictureInPicture();
+      }
+    } catch (e) { console.warn('PiP:', e); }
+  });
+}
+
 // ── alert ──────────────────────────────────────────────────────────────────────
 function playBeep() {
   const ctx  = new (window.AudioContext || window.webkitAudioContext)();
@@ -320,6 +377,12 @@ function buildCameraCards(cams) {
         <span class="cam-label-text" id="lbl-${cam.id}" title="Click to rename">${cam.label}</span>
         <input class="cam-label-input" id="lbl-input-${cam.id}" style="display:none" value="${cam.label}" />
         <button class="btn-icon" id="lbl-edit-${cam.id}" title="Rename">✏️</button>
+        <button class="btn-icon" id="pip-${cam.id}" title="Pop out camera" style="display:none">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="1" y="2" width="13" height="10" rx="1.5"/>
+            <rect x="7.5" y="6.5" width="5" height="4" rx="1" fill="currentColor" stroke="none"/>
+          </svg>
+        </button>
         <label class="cam-sound-btn ${cam.has_sound ? 'has-sound' : ''}" id="csound-lbl-${cam.id}"
                title="${cam.has_sound ? 'Replace sound' : 'Upload alert sound'}">
           🔊
@@ -374,6 +437,9 @@ function buildCameraCards(cams) {
     const opt = document.createElement('option');
     opt.value = cam.id; opt.textContent = cam.label;
     sel.appendChild(opt);
+
+    // picture-in-picture
+    setupPiP(cam.id);
   });
 }
 
