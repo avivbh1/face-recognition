@@ -1,3 +1,4 @@
+import json
 import threading
 import cv2
 import numpy as np
@@ -7,6 +8,28 @@ from verifier import FaceVerifier
 from face_db import load_all, save_face, delete_face, face_names, FACES_DIR
 from camera_manager import (detect_cameras, load_config, save_config,
                              get_cam_sound_path, CAM_SOUNDS_DIR)
+
+SETTINGS_FILE = Path("settings.json")
+
+
+def load_settings():
+    if not SETTINGS_FILE.exists():
+        return {"general_sound_type": "notification"}
+    with open(SETTINGS_FILE) as f:
+        return json.load(f)
+
+
+def save_settings(s):
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(s, f, indent=2)
+
+
+def get_general_sound_path():
+    for ext in (".mp3", ".wav", ".ogg", ".m4a"):
+        p = Path("static") / f"general_sound{ext}"
+        if p.exists():
+            return p
+    return None
 
 app = Flask(__name__, static_folder="static")
 
@@ -291,6 +314,43 @@ def start_enroll():
                        "sound_bytes": s_bytes, "sound_ext": s_ext})
 
     return jsonify({"ok": True, "name": name, "cam_id": cam_id})
+
+
+@app.route("/settings")
+def get_settings():
+    s = load_settings()
+    s["has_custom_sound"] = get_general_sound_path() is not None
+    return jsonify(s)
+
+
+@app.route("/settings", methods=["POST"])
+def update_settings():
+    s = load_settings()
+    data = request.json or {}
+    if "general_sound_type" in data:
+        s["general_sound_type"] = data["general_sound_type"]
+    save_settings(s)
+    return jsonify({"ok": True})
+
+
+@app.route("/settings/general-sound", methods=["POST"])
+def upload_general_sound():
+    if "sound" not in request.files:
+        return jsonify({"error": "no file"}), 400
+    f   = request.files["sound"]
+    ext = Path(f.filename).suffix.lower() if f.filename else ".mp3"
+    for old in Path("static").glob("general_sound.*"):
+        old.unlink()
+    f.save(Path("static") / f"general_sound{ext}")
+    return jsonify({"ok": True})
+
+
+@app.route("/general_sound")
+def general_sound():
+    p = get_general_sound_path()
+    if not p:
+        abort(404)
+    return send_from_directory(p.parent, p.name)
 
 
 if __name__ == "__main__":

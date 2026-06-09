@@ -163,6 +163,26 @@
     .file-label:hover { border-color: var(--accent); color: var(--text); }
     .file-label input { display: none; }
     #sound-name { font-size: .72rem; color: var(--accent); }
+
+    /* sound settings */
+    .radio-opts { display: flex; flex-direction: column; gap: 8px; }
+    .radio-opt  {
+      display: flex; align-items: center; gap: 9px;
+      font-size: .85rem; cursor: pointer; padding: 7px 10px;
+      border-radius: 7px; border: 1px solid var(--border);
+      background: #0f0f1a; transition: border .15s;
+    }
+    .radio-opt:has(input:checked) { border-color: var(--accent); }
+    .radio-opt input[type=radio]  { accent-color: var(--accent); }
+    .upload-inline {
+      margin-left: auto; font-size: .75rem; color: var(--muted);
+      border: 1px dashed var(--border); border-radius: 5px;
+      padding: 2px 8px; cursor: pointer; transition: border .15s, color .15s;
+    }
+    .upload-inline:hover         { border-color: var(--accent); color: var(--text); }
+    .upload-inline.has-file      { border-color: var(--accent); color: var(--accent); }
+    .upload-inline input         { display: none; }
+
     .btn-primary {
       padding: 9px; border: none; border-radius: 8px;
       background: var(--accent); color: #fff;
@@ -217,6 +237,28 @@
   <div class="card" style="max-width:420px">
     <div class="card-title">Enrolled Faces</div>
     <div id="faces-list"><div style="font-size:.8rem;color:var(--muted)">No faces enrolled yet.</div></div>
+  </div>
+
+  <div class="card" style="max-width:280px">
+    <div class="card-title">General Sound</div>
+    <div class="radio-opts">
+      <label class="radio-opt">
+        <input type="radio" name="gsound" value="notification" />
+        🔔 Notification <small style="color:var(--muted);margin-left:4px">default</small>
+      </label>
+      <label class="radio-opt">
+        <input type="radio" name="gsound" value="voice" />
+        🗣️ Voice announcement
+      </label>
+      <label class="radio-opt">
+        <input type="radio" name="gsound" value="custom" />
+        📁 Custom file
+        <label class="upload-inline" id="gsound-upload-lbl" title="Upload sound">
+          Upload
+          <input type="file" id="gsound-file" accept="audio/*" />
+        </label>
+      </label>
+    </div>
   </div>
 
   <div class="card" style="max-width:320px">
@@ -305,7 +347,54 @@ function setupPiP(camId) {
   });
 }
 
-// ── text-to-speech ─────────────────────────────────────────────────────────────
+// ── sound settings ─────────────────────────────────────────────────────────────
+let soundSettings = { general_sound_type: 'notification', has_custom_sound: false };
+
+async function loadSoundSettings() {
+  const res = await fetch('/settings');
+  soundSettings = await res.json();
+  // reflect in radio buttons
+  const radio = document.querySelector(`input[name=gsound][value="${soundSettings.general_sound_type}"]`);
+  if (radio) radio.checked = true;
+  if (soundSettings.has_custom_sound)
+    document.getElementById('gsound-upload-lbl').classList.add('has-file');
+}
+
+async function saveSoundType(type) {
+  soundSettings.general_sound_type = type;
+  await fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ general_sound_type: type }) });
+}
+
+document.querySelectorAll('input[name=gsound]').forEach(r =>
+  r.addEventListener('change', () => saveSoundType(r.value))
+);
+
+document.getElementById('gsound-file').addEventListener('change', async function() {
+  if (!this.files[0]) return;
+  const fd = new FormData(); fd.append('sound', this.files[0]);
+  await fetch('/settings/general-sound', { method: 'POST', body: fd });
+  soundSettings.has_custom_sound = true;
+  document.getElementById('gsound-upload-lbl').classList.add('has-file');
+  // auto-select custom if not already
+  const radio = document.querySelector('input[name=gsound][value="custom"]');
+  if (radio && !radio.checked) { radio.checked = true; saveSoundType('custom'); }
+});
+
+// ── audio helpers ──────────────────────────────────────────────────────────────
+function playNotificationChime() {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  [[0, 523], [0.13, 659], [0.26, 784]].forEach(([t, freq]) => {
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine'; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, ctx.currentTime + t);
+    gain.gain.linearRampToValueAtTime(0.28, ctx.currentTime + t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.55);
+    osc.start(ctx.currentTime + t); osc.stop(ctx.currentTime + t + 0.55);
+  });
+}
+
 function speak(text) {
   if (!window.speechSynthesis) return;
   speechSynthesis.cancel();
@@ -314,14 +403,25 @@ function speak(text) {
   speechSynthesis.speak(utt);
 }
 
+function playGeneralSound(label, isUnknown, camLabel) {
+  const type = soundSettings.general_sound_type;
+  if (type === 'voice') {
+    speak(isUnknown ? `Unknown person detected at ${camLabel}` : label);
+  } else if (type === 'custom' && soundSettings.has_custom_sound) {
+    new Audio(`/general_sound?t=${Date.now()}`).play().catch(() => {});
+  } else {
+    playNotificationChime();
+  }
+}
+
 // ── alert ──────────────────────────────────────────────────────────────────────
-const lastUnknown = {};  // cam_id → timestamp, for unknown-face cooldown
+const lastUnknown = {};
 
 function announceUnknown(camId, camLabel) {
   const now = Date.now();
   if (lastUnknown[camId] && now - lastUnknown[camId] < ALERT_COOLDOWN) return;
   lastUnknown[camId] = now;
-  speak(`Unknown person detected at ${camLabel}`);
+  playGeneralSound(null, true, camLabel);
 }
 
 function showAlert(name, camLabel, soundUrl) {
@@ -333,17 +433,14 @@ function showAlert(name, camLabel, soundUrl) {
   document.getElementById('alert-photo').src = `/faces/${encodeURIComponent(name)}/photo?t=${now}`;
   document.getElementById('alert-name').textContent = name;
   document.getElementById('alert-cam').textContent  = `Detected at: ${camLabel}`;
-
   document.getElementById('alert-overlay').classList.add('visible');
 
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
   if (soundUrl) {
-    // person has a custom sound — play it
     currentAudio = new Audio(soundUrl);
     currentAudio.play().catch(() => {});
   } else {
-    // no personal sound — TTS speaks their name
-    speak(name);
+    playGeneralSound(name, false, camLabel);
   }
 
   const fill = document.getElementById('alert-fill');
@@ -569,6 +666,7 @@ async function init() {
   cameras = await res.json();
   buildCameraCards(cameras);
   loadFaces();
+  loadSoundSettings();
   setInterval(pollStatus, 250);
   setInterval(loadFaces, 6000);
   pollStatus();
