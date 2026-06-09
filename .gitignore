@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# model weights (downloaded at runtime by InsightFace)
+models/
+buffalo_sc/
+~/.insightface/
+
+# enrolled face data (user-specific)
+faces/
+reference.npy
+cameras.json
+
+# camera sounds
+static/cam_sounds/
