@@ -20,3 +20,7 @@ cameras.json
 
 # camera sounds
 static/cam_sounds/
+
+# runtime config and user data
+settings.json
+bash.exe.stackdump
