@@ -316,6 +316,44 @@ def start_enroll():
     return jsonify({"ok": True, "name": name, "cam_id": cam_id})
 
 
+@app.route("/enroll/image", methods=["POST"])
+def enroll_from_image():
+    name = request.form.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    if "image" not in request.files:
+        return jsonify({"error": "image required"}), 400
+
+    img_bytes = request.files["image"].read()
+    arr   = np.frombuffer(img_bytes, np.uint8)
+    frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if frame is None:
+        return jsonify({"error": "invalid image file"}), 400
+
+    emb, bbox = verifier.get_embedding(frame)
+    if emb is None:
+        return jsonify({"error": "no face detected in the image"}), 400
+
+    if bbox is not None:
+        x1, y1, x2, y2 = bbox
+        photo = frame[max(0, y1):y2, max(0, x1):x2]
+    else:
+        photo = frame
+
+    s_bytes, s_ext = None, None
+    if "sound" in request.files:
+        f       = request.files["sound"]
+        s_bytes = f.read()
+        s_ext   = Path(f.filename).suffix.lower() if f.filename else ".mp3"
+
+    save_face(name, emb, photo, s_bytes, s_ext)
+    global faces
+    with faces_lock:
+        faces = load_all()
+
+    return jsonify({"ok": True, "name": name})
+
+
 @app.route("/settings")
 def get_settings():
     s = load_settings()

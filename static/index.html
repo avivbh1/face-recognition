@@ -164,6 +164,15 @@
     .file-label input { display: none; }
     #sound-name { font-size: .72rem; color: var(--accent); }
 
+    /* enroll tabs */
+    .enroll-tabs { display: flex; gap: 6px; }
+    .etab {
+      flex: 1; padding: 7px; border-radius: 7px; font-size: .8rem; font-weight: 600;
+      border: 1px solid var(--border); background: #0f0f1a; color: var(--muted);
+      cursor: pointer; transition: border .15s, color .15s, background .15s;
+    }
+    .etab.active { border-color: var(--accent); color: var(--accent); background: rgba(108,99,255,.1); }
+
     /* sound settings */
     .radio-opts { display: flex; flex-direction: column; gap: 8px; }
     .radio-opt  {
@@ -261,16 +270,44 @@
     </div>
   </div>
 
-  <div class="card" style="max-width:320px">
+  <div class="card" style="max-width:340px">
     <div class="card-title">Add Person</div>
     <div class="enroll-form">
+
+      <!-- name (shared) -->
       <input type="text" id="enroll-name" placeholder="Name" maxlength="40" />
-      <select class="cam-select" id="enroll-cam"></select>
+
+      <!-- mode tabs -->
+      <div class="enroll-tabs">
+        <button class="etab active" id="tab-cam"   data-tab="cam">📷 Camera</button>
+        <button class="etab"        id="tab-image" data-tab="image">🖼️ Upload Image</button>
+      </div>
+
+      <!-- camera mode -->
+      <div id="mode-cam">
+        <select class="cam-select" id="enroll-cam"></select>
+      </div>
+
+      <!-- image upload mode -->
+      <div id="mode-image" style="display:none; flex-direction:column; gap:8px;">
+        <label class="file-label" id="img-upload-lbl">
+          📂 Choose image…
+          <input type="file" id="enroll-image" accept="image/*" />
+        </label>
+        <div id="img-preview-wrap" style="display:none; text-align:center;">
+          <img id="img-preview" src="" alt="preview"
+               style="max-height:120px; border-radius:8px; border:1px solid var(--border);" />
+          <div id="img-preview-name" style="font-size:.72rem; color:var(--muted); margin-top:4px;"></div>
+        </div>
+      </div>
+
+      <!-- sound (shared) -->
       <label class="file-label">
         🔊 Alert sound (optional)
         <input type="file" id="enroll-sound" accept="audio/*" />
       </label>
       <div id="sound-name"></div>
+
       <button class="btn-primary" id="enroll-btn">Enroll Face</button>
     </div>
   </div>
@@ -621,43 +658,100 @@ async function loadFaces() {
   });
 }
 
+// ── enroll tabs ────────────────────────────────────────────────────────────────
+let enrollMode = 'cam';
+
+document.querySelectorAll('.etab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    enrollMode = tab.dataset.tab;
+    document.querySelectorAll('.etab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('mode-cam').style.display   = enrollMode === 'cam'   ? '' : 'none';
+    document.getElementById('mode-image').style.display = enrollMode === 'image' ? 'flex' : 'none';
+  });
+});
+
+// image preview
+document.getElementById('enroll-image').addEventListener('change', function() {
+  const file = this.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('img-preview').src = e.target.result;
+    document.getElementById('img-preview-name').textContent = file.name;
+    document.getElementById('img-preview-wrap').style.display = '';
+  };
+  reader.readAsDataURL(file);
+  document.getElementById('img-upload-lbl').childNodes[0].textContent = '✅ Image selected  ';
+});
+
 // ── enroll form ────────────────────────────────────────────────────────────────
 document.getElementById('enroll-sound').addEventListener('change', function() {
   document.getElementById('sound-name').textContent = this.files[0]?.name ?? '';
 });
 
 document.getElementById('enroll-btn').addEventListener('click', async () => {
-  const btn   = document.getElementById('enroll-btn');
-  const name  = document.getElementById('enroll-name').value.trim();
-  const camId = document.getElementById('enroll-cam').value;
+  const btn       = document.getElementById('enroll-btn');
+  const name      = document.getElementById('enroll-name').value.trim();
   const soundFile = document.getElementById('enroll-sound').files[0];
   if (!name) { document.getElementById('enroll-name').focus(); return; }
 
-  const fd = new FormData();
-  fd.append('name', name);
-  fd.append('cam_id', camId);
-  if (soundFile) fd.append('sound', soundFile);
+  if (enrollMode === 'image') {
+    // ── image upload enrollment (instant) ──
+    const imgFile = document.getElementById('enroll-image').files[0];
+    if (!imgFile) { alert('Please choose an image first.'); return; }
 
-  btn.disabled = true; btn.textContent = 'Starting…';
-  const res = await fetch('/enroll', { method: 'POST', body: fd });
-  if (!res.ok) {
-    const e = await res.json();
-    alert(e.error || 'Failed'); btn.disabled = false; btn.textContent = 'Enroll Face'; return;
-  }
+    const fd = new FormData();
+    fd.append('name', name);
+    fd.append('image', imgFile);
+    if (soundFile) fd.append('sound', soundFile);
 
-  document.getElementById('enroll-name').value = '';
-  document.getElementById('enroll-sound').value = '';
-  document.getElementById('sound-name').textContent = '';
-  btn.textContent = 'Enrolling…';
+    btn.disabled = true; btn.textContent = 'Processing…';
+    const res = await fetch('/enroll/image', { method: 'POST', body: fd });
+    const data = await res.json();
 
-  const check = setInterval(async () => {
-    const s = await (await fetch('/status')).json();
-    if (!s.enroll?.active) {
-      clearInterval(check);
-      btn.disabled = false; btn.textContent = 'Enroll Face';
-      loadFaces();
+    btn.disabled = false; btn.textContent = 'Enroll Face';
+
+    if (!res.ok) { alert(data.error || 'Enrollment failed'); return; }
+
+    // reset
+    document.getElementById('enroll-name').value  = '';
+    document.getElementById('enroll-image').value = '';
+    document.getElementById('enroll-sound').value = '';
+    document.getElementById('sound-name').textContent = '';
+    document.getElementById('img-preview-wrap').style.display = 'none';
+    document.getElementById('img-upload-lbl').childNodes[0].textContent = '📂 Choose image…  ';
+    loadFaces();
+
+  } else {
+    // ── camera enrollment (async, progress-tracked) ──
+    const camId = document.getElementById('enroll-cam').value;
+    const fd = new FormData();
+    fd.append('name', name);
+    fd.append('cam_id', camId);
+    if (soundFile) fd.append('sound', soundFile);
+
+    btn.disabled = true; btn.textContent = 'Starting…';
+    const res = await fetch('/enroll', { method: 'POST', body: fd });
+    if (!res.ok) {
+      const e = await res.json();
+      alert(e.error || 'Failed'); btn.disabled = false; btn.textContent = 'Enroll Face'; return;
     }
-  }, 500);
+
+    document.getElementById('enroll-name').value = '';
+    document.getElementById('enroll-sound').value = '';
+    document.getElementById('sound-name').textContent = '';
+    btn.textContent = 'Enrolling…';
+
+    const check = setInterval(async () => {
+      const s = await (await fetch('/status')).json();
+      if (!s.enroll?.active) {
+        clearInterval(check);
+        btn.disabled = false; btn.textContent = 'Enroll Face';
+        loadFaces();
+      }
+    }, 500);
+  }
 });
 
 // ── init ───────────────────────────────────────────────────────────────────────
