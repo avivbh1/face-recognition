@@ -124,22 +124,96 @@
 
     /* enrolled faces */
     #faces-list { display: flex; flex-direction: column; gap: 7px; }
-    .face-item {
-      display: flex; align-items: center; gap: 10px;
-      background: #0f0f1a; border: 1px solid var(--border);
-      border-radius: 8px; padding: 7px 10px;
+    .face-item { display: flex; flex-direction: column; background: #0f0f1a; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .face-item-row {
+      display: flex; align-items: center; gap: 10px; padding: 7px 10px;
     }
     .face-item img {
       width: 38px; height: 38px; border-radius: 50%;
-      object-fit: cover; border: 1px solid var(--border);
+      object-fit: cover; border: 1px solid var(--border); flex-shrink: 0;
     }
     .face-item .fname { flex: 1; font-size: .85rem; font-weight: 600; }
+    .face-item .fsound-toggle {
+      background: none; border: none; cursor: pointer; color: var(--muted);
+      font-size: .85rem; padding: 2px 6px; border-radius: 4px;
+      transition: color .15s, background .15s;
+    }
+    .face-item .fsound-toggle:hover, .face-item .fsound-toggle.active
+      { color: var(--accent); background: rgba(108,99,255,.12); }
     .face-item .fdel {
       background: none; border: none; cursor: pointer;
       color: var(--muted); font-size: .9rem; padding: 2px 6px;
       border-radius: 4px; transition: color .15s, background .15s;
     }
     .face-item .fdel:hover { color: var(--red); background: #2d0d0d; }
+    .face-sound-panel {
+      display: none; flex-direction: column; gap: 6px;
+      padding: 8px 12px 10px; border-top: 1px solid var(--border);
+      background: #0a0a14;
+    }
+    .face-sound-panel.open { display: flex; }
+    .sound-row {
+      display: flex; align-items: center; gap: 8px; font-size: .78rem;
+    }
+    .sound-row-label { color: var(--muted); flex: 1; }
+    .sound-upload-btn {
+      background: none; border: 1px dashed var(--border); color: var(--muted);
+      border-radius: 5px; padding: 2px 8px; font-size: .72rem; cursor: pointer;
+      transition: border .15s, color .15s; white-space: nowrap;
+    }
+    .sound-upload-btn:hover       { border-color: var(--accent); color: var(--text); }
+    .sound-upload-btn.has-sound   { border-color: var(--accent); color: var(--accent); border-style: solid; }
+
+    /* ── detection queue ── */
+    .queue-section { width: 100%; max-width: 1200px; }
+    .queue-scroll {
+      display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px;
+    }
+    .queue-scroll::-webkit-scrollbar { height: 5px; }
+    .queue-scroll::-webkit-scrollbar-track { background: transparent; }
+    .queue-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .q-card {
+      flex-shrink: 0; width: 150px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; overflow: hidden; display: flex; flex-direction: column;
+    }
+    .q-card.recognition { border-color: rgba(46,204,113,.3); width: 200px; }
+    .q-card img.q-crop {
+      width: 100%; height: 100px; object-fit: cover; display: block;
+    }
+    .q-card.recognition img.q-crop { height: 80px; }
+    .q-card .q-enrolled-photo {
+      width: 36px; height: 36px; border-radius: 50%; object-fit: cover;
+      border: 2px solid var(--green); flex-shrink: 0;
+    }
+    .q-body { padding: 8px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+    .q-name { font-size: .82rem; font-weight: 700; }
+    .q-name.match { color: var(--green); }
+    .q-name.unknown { color: var(--muted); }
+    .q-meta { font-size: .68rem; color: var(--muted); }
+    .q-score { font-size: .68rem; color: var(--accent); }
+    .q-rec-row { display: flex; align-items: center; gap: 7px; }
+
+    .q-enroll-area { margin-top: auto; }
+    .q-enroll-btn {
+      width: 100%; padding: 5px; border: none; border-radius: 0 0 0 0;
+      background: rgba(108,99,255,.15); color: var(--accent);
+      font-size: .75rem; font-weight: 600; cursor: pointer;
+      transition: background .15s; border-top: 1px solid var(--border);
+    }
+    .q-enroll-btn:hover { background: rgba(108,99,255,.3); }
+    .q-enroll-form { display: flex; border-top: 1px solid var(--border); }
+    .q-enroll-form input {
+      flex: 1; background: #0f0f1a; border: none; outline: none;
+      color: var(--text); font-size: .75rem; padding: 5px 7px;
+      border-radius: 0;
+    }
+    .q-enroll-form button {
+      background: var(--accent); border: none; color: #fff;
+      font-size: .72rem; padding: 5px 8px; cursor: pointer;
+    }
+    .q-empty { font-size: .8rem; color: var(--muted); padding: 8px 0; }
 
     /* enroll form */
     .enroll-form { display: flex; flex-direction: column; gap: 8px; }
@@ -240,6 +314,14 @@
 
 <!-- camera grid (built dynamically) -->
 <div id="cam-grid"></div>
+
+<!-- detection / recognition queue -->
+<div class="queue-section">
+  <div class="card-title" style="margin-bottom:10px">Recent Detections &amp; Recognitions <span id="queue-count" style="color:var(--muted)"></span></div>
+  <div class="queue-scroll" id="queue-scroll">
+    <div class="q-empty">No events yet.</div>
+  </div>
+</div>
 
 <!-- bottom: faces + enroll -->
 <div class="bottom-row">
@@ -655,17 +737,186 @@ async function loadFaces() {
   faces.forEach(f => {
     const item = document.createElement('div');
     item.className = 'face-item';
+
+    // sound rows for expand panel
+    const defaultHas = f.has_default_sound;
+    let soundRowsHtml = `
+      <div class="sound-row">
+        <span class="sound-row-label">🔊 Default (all cameras)</span>
+        <label class="sound-upload-btn ${defaultHas ? 'has-sound' : ''}">
+          ${defaultHas ? 'Change' : 'Upload'}
+          <input type="file" accept="audio/*" style="display:none"
+                 data-face="${f.name}" data-cam="default" />
+        </label>
+      </div>`;
+    cameras.forEach(cam => {
+      const has = f.cam_sounds?.[String(cam.id)] || false;
+      soundRowsHtml += `
+      <div class="sound-row">
+        <span class="sound-row-label">📷 ${cam.label}</span>
+        <label class="sound-upload-btn ${has ? 'has-sound' : ''}">
+          ${has ? 'Change' : 'Override'}
+          <input type="file" accept="audio/*" style="display:none"
+                 data-face="${f.name}" data-cam="${cam.id}" />
+        </label>
+      </div>`;
+    });
+
     item.innerHTML = `
-      <img src="${f.photo_url}?t=${Date.now()}" alt="${f.name}" />
-      <span class="fname">${f.name}</span>
-      <button class="fdel" data-name="${f.name}">✕</button>`;
+      <div class="face-item-row">
+        <img src="${f.photo_url}?t=${Date.now()}" alt="${f.name}" />
+        <span class="fname">${f.name}</span>
+        <button class="fsound-toggle" title="Sound settings">🔊</button>
+        <button class="fdel">✕</button>
+      </div>
+      <div class="face-sound-panel">${soundRowsHtml}</div>`;
+
+    // toggle panel
+    const toggle = item.querySelector('.fsound-toggle');
+    const panel  = item.querySelector('.face-sound-panel');
+    toggle.addEventListener('click', () => {
+      panel.classList.toggle('open');
+      toggle.classList.toggle('active', panel.classList.contains('open'));
+    });
+
+    // sound uploads
+    item.querySelectorAll('input[type=file]').forEach(inp => {
+      inp.addEventListener('change', async () => {
+        if (!inp.files[0]) return;
+        const face = inp.dataset.face;
+        const cam  = inp.dataset.cam;
+        const fd   = new FormData();
+        fd.append('sound', inp.files[0]);
+        const url = cam === 'default'
+          ? `/faces/${encodeURIComponent(face)}/sound`
+          : `/faces/${encodeURIComponent(face)}/sound/${cam}`;
+        await fetch(url, { method: 'POST', body: fd });
+        loadFaces();
+      });
+    });
+
     item.querySelector('.fdel').addEventListener('click', async () => {
       if (!confirm(`Remove "${f.name}"?`)) return;
       await fetch(`/faces/${encodeURIComponent(f.name)}`, { method: 'DELETE' });
       loadFaces();
     });
+
     list.appendChild(item);
   });
+}
+
+// ── detection queue ────────────────────────────────────────────────────────────
+function timeStr(ts) {
+  return new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+
+function renderQueueCard(ev) {
+  const card = document.createElement('div');
+  card.className = `q-card ${ev.type}`;
+  card.dataset.id = ev.id;
+
+  if (ev.type === 'recognition') {
+    card.innerHTML = `
+      <div class="q-rec-row" style="padding:8px 8px 0;">
+        <img class="q-crop" src="${ev.crop_url}?t=1" style="width:80px;height:70px;border-radius:6px;object-fit:cover;flex-shrink:0;" />
+        <img class="q-enrolled-photo" src="/faces/${encodeURIComponent(ev.matched_name)}/photo" />
+      </div>
+      <div class="q-body">
+        <div class="q-name match">✓ ${ev.matched_name}</div>
+        <div class="q-meta">${ev.cam_label}</div>
+        <div class="q-score">Score: ${ev.score.toFixed(3)}</div>
+        <div class="q-meta">${timeStr(ev.timestamp)}</div>
+      </div>`;
+  } else {
+    card.innerHTML = `
+      <img class="q-crop" src="${ev.crop_url}?t=1" />
+      <div class="q-body">
+        <div class="q-name unknown">Unknown</div>
+        <div class="q-meta">${ev.cam_label}</div>
+        <div class="q-meta">${timeStr(ev.timestamp)}</div>
+        <div class="q-enroll-area">
+          <button class="q-enroll-btn">+ Enroll this face</button>
+          <div class="q-enroll-form" style="display:none">
+            <input type="text" placeholder="Name…" maxlength="40" />
+            <button>✓</button>
+          </div>
+        </div>
+      </div>`;
+
+    const enrollBtn  = card.querySelector('.q-enroll-btn');
+    const enrollForm = card.querySelector('.q-enroll-form');
+    const nameInput  = card.querySelector('.q-enroll-form input');
+    const submitBtn  = card.querySelector('.q-enroll-form button');
+
+    enrollBtn.addEventListener('click', () => {
+      enrollBtn.style.display = 'none';
+      enrollForm.style.display = 'flex';
+      nameInput.focus();
+    });
+
+    async function doEnroll() {
+      const name = nameInput.value.trim();
+      if (!name) return;
+      submitBtn.textContent = '…';
+      const res  = await fetch(`/enroll/queue/${ev.id}`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({name}),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.error || 'Failed'); submitBtn.textContent = '✓'; return; }
+      // update card to show recognition
+      card.classList.add('recognition'); card.classList.remove('detection');
+      card.style.width = '200px';
+      card.innerHTML = `
+        <div class="q-rec-row" style="padding:8px 8px 0;">
+          <img class="q-crop" src="${ev.crop_url}?t=1" style="width:80px;height:70px;border-radius:6px;object-fit:cover;flex-shrink:0;" />
+          <img class="q-enrolled-photo" src="/faces/${encodeURIComponent(name)}/photo?t=${Date.now()}" />
+        </div>
+        <div class="q-body">
+          <div class="q-name match">✓ ${name}</div>
+          <div class="q-meta">${ev.cam_label}</div>
+          <div class="q-meta">${timeStr(ev.timestamp)}</div>
+        </div>`;
+      loadFaces();
+    }
+
+    submitBtn.addEventListener('click', doEnroll);
+    nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') doEnroll(); });
+  }
+  return card;
+}
+
+const knownQueueIds = new Set();
+
+async function pollQueue() {
+  try {
+    const res    = await fetch('/queue');
+    const events = await res.json();
+    const scroll = document.getElementById('queue-scroll');
+    const count  = document.getElementById('queue-count');
+
+    if (!events.length) {
+      scroll.innerHTML = '<div class="q-empty">No events yet.</div>';
+      count.textContent = '';
+      return;
+    }
+
+    count.textContent = `(${events.length}/20)`;
+
+    // prepend new events; don't rebuild entire list
+    let hasNew = false;
+    events.forEach(ev => {
+      if (knownQueueIds.has(ev.id)) return;
+      knownQueueIds.add(ev.id);
+      hasNew = true;
+      const card = renderQueueCard(ev);
+      if (scroll.firstChild?.classList?.contains('q-empty')) scroll.innerHTML = '';
+      scroll.prepend(card);
+    });
+
+    // prune cards beyond 20
+    while (scroll.children.length > 20) scroll.removeChild(scroll.lastChild);
+  } catch { /* server not ready */ }
 }
 
 // ── enroll tabs ────────────────────────────────────────────────────────────────
@@ -771,7 +1022,9 @@ async function init() {
   buildCameraCards(cameras);
   loadFaces();
   loadSoundSettings();
+  pollQueue();
   setInterval(pollStatus, 250);
+  setInterval(pollQueue, 2000);
   setInterval(loadFaces, 6000);
   pollStatus();
 }

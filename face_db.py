@@ -4,6 +4,7 @@ import cv2
 from pathlib import Path
 
 FACES_DIR = Path("faces")
+_SOUND_EXTS = (".mp3", ".wav", ".ogg", ".m4a")
 
 
 def save_face(name, embedding, photo_bgr, sound_bytes=None, sound_ext=None):
@@ -16,6 +17,32 @@ def save_face(name, embedding, photo_bgr, sound_bytes=None, sound_ext=None):
             f.write(sound_bytes)
 
 
+def save_face_sound(name, sound_bytes, sound_ext, cam_id=None):
+    """Save default sound (cam_id=None) or a per-camera override."""
+    d = FACES_DIR / name
+    d.mkdir(parents=True, exist_ok=True)
+    prefix = f"sound_cam_{cam_id}" if cam_id is not None else "sound"
+    for old in d.glob(f"{prefix}.*"):
+        old.unlink()
+    with open(d / f"{prefix}{sound_ext}", "wb") as f:
+        f.write(sound_bytes)
+
+
+def get_face_sound_path(name, cam_id=None):
+    """Return cam-specific sound path if set, else default, else None."""
+    d = FACES_DIR / name
+    if cam_id is not None:
+        for ext in _SOUND_EXTS:
+            p = d / f"sound_cam_{cam_id}{ext}"
+            if p.exists():
+                return p
+    for ext in _SOUND_EXTS:
+        p = d / f"sound{ext}"
+        if p.exists():
+            return p
+    return None
+
+
 def load_all():
     faces = []
     if not FACES_DIR.exists():
@@ -26,17 +53,10 @@ def load_all():
         emb_path = d / "embedding.npy"
         if not emb_path.exists():
             continue
-        sound_path = None
-        for ext in (".mp3", ".wav", ".ogg", ".m4a"):
-            p = d / f"sound{ext}"
-            if p.exists():
-                sound_path = p
-                break
         faces.append({
             "name": d.name,
             "embedding": np.load(emb_path),
             "photo": d / "photo.jpg",
-            "sound": sound_path,
         })
     return faces
 
