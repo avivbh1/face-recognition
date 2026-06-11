@@ -164,6 +164,22 @@
     .sound-upload-btn:hover       { border-color: var(--accent); color: var(--text); }
     .sound-upload-btn.has-sound   { border-color: var(--accent); color: var(--accent); border-style: solid; }
 
+    .announce-row { flex-direction: column; align-items: stretch; gap: 5px; }
+    .announce-input-wrap { display: flex; gap: 6px; }
+    .announce-input {
+      flex: 1; background: #0f0f1a; border: 1px solid var(--border);
+      color: var(--text); border-radius: 5px; padding: 3px 7px;
+      font-size: .78rem; outline: none; transition: border .15s;
+    }
+    .announce-input:focus { border-color: var(--accent); }
+    .announce-save {
+      background: none; border: 1px solid var(--border); color: var(--muted);
+      border-radius: 5px; padding: 2px 9px; font-size: .72rem; cursor: pointer;
+      white-space: nowrap; transition: border .15s, color .15s;
+    }
+    .announce-save:hover  { border-color: var(--accent); color: var(--text); }
+    .announce-save.saved  { border-color: var(--green); color: var(--green); }
+
     /* ── detection queue ── */
     .queue-section { width: 100%; max-width: 1200px; }
     .queue-scroll {
@@ -350,6 +366,14 @@
         </label>
       </label>
     </div>
+    <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:6px;">💬 Unknown person announcement</div>
+      <div class="announce-input-wrap">
+        <input type="text" id="unknown-announce-input" class="announce-input"
+               placeholder="e.g. Unknown person detected!" maxlength="200" />
+        <button id="unknown-announce-save" class="announce-save">Save</button>
+      </div>
+    </div>
   </div>
 
   <div class="card" style="max-width:340px">
@@ -407,6 +431,11 @@
 </div>
 
 <script>
+// ── helpers ────────────────────────────────────────────────────────────────────
+function escAttr(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 // ── state ──────────────────────────────────────────────────────────────────────
 const ALERT_DURATION = 6000;
 const ALERT_COOLDOWN = 12000;
@@ -475,6 +504,9 @@ async function loadSoundSettings() {
   // reflect in radio buttons
   const radio = document.querySelector(`input[name=gsound][value="${soundSettings.general_sound_type}"]`);
   if (radio) radio.checked = true;
+  const unknownInput = document.getElementById('unknown-announce-input');
+  if (unknownInput && soundSettings.unknown_announcement_text)
+    unknownInput.value = soundSettings.unknown_announcement_text;
   if (soundSettings.has_custom_sound)
     document.getElementById('gsound-upload-lbl').classList.add('has-file');
 }
@@ -488,6 +520,21 @@ async function saveSoundType(type) {
 document.querySelectorAll('input[name=gsound]').forEach(r =>
   r.addEventListener('change', () => saveSoundType(r.value))
 );
+
+async function saveUnknownAnnouncement() {
+  const text = document.getElementById('unknown-announce-input').value.trim();
+  soundSettings.unknown_announcement_text = text;
+  await fetch('/settings', { method: 'POST', headers: {'Content-Type': 'application/json'},
+                              body: JSON.stringify({ unknown_announcement_text: text }) });
+  const btn = document.getElementById('unknown-announce-save');
+  btn.textContent = 'Saved!'; btn.classList.add('saved');
+  setTimeout(() => { btn.textContent = 'Save'; btn.classList.remove('saved'); }, 1500);
+}
+
+document.getElementById('unknown-announce-save').addEventListener('click', saveUnknownAnnouncement);
+document.getElementById('unknown-announce-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') saveUnknownAnnouncement();
+});
 
 document.getElementById('gsound-file').addEventListener('change', async function() {
   if (!this.files[0]) return;
@@ -550,10 +597,15 @@ function announceUnknown(camId, camLabel) {
   if (lastUnknown[camId] && now - lastUnknown[camId] < ALERT_COOLDOWN) return;
   lastUnknown[camId] = now;
   stopAllSounds();
-  playGeneralSound(null, true, camLabel);
+  const customText = soundSettings.unknown_announcement_text;
+  if (customText) {
+    speak(customText);
+  } else {
+    playGeneralSound(null, true, camLabel);
+  }
 }
 
-function showAlert(name, camLabel, soundUrl) {
+function showAlert(name, camLabel, soundUrl, announcementText) {
   const key = `${name}@${camLabel}`;
   const now  = Date.now();
   if (lastAlerted[key] && now - lastAlerted[key] < ALERT_COOLDOWN) return;
@@ -565,7 +617,9 @@ function showAlert(name, camLabel, soundUrl) {
   document.getElementById('alert-overlay').classList.add('visible');
 
   stopAllSounds();
-  if (soundUrl) {
+  if (announcementText) {
+    speak(announcementText);
+  } else if (soundUrl) {
     currentAudio = new Audio(soundUrl);
     currentAudio.play().catch(() => {});
   } else {
@@ -714,7 +768,7 @@ async function pollStatus() {
       } else if (cam.matched_name) {
         badge.className = 'cam-badge match'; badge.textContent = cam.matched_name.toUpperCase();
         barEl.style.background = '#2ecc71';
-        showAlert(cam.matched_name, cam.label, cam.sound_url);
+        showAlert(cam.matched_name, cam.label, cam.sound_url, cam.announcement_text);
       } else {
         badge.className = 'cam-badge nomatch'; badge.textContent = 'UNKNOWN';
         barEl.style.background = '#e74c3c';
@@ -741,6 +795,14 @@ async function loadFaces() {
     // sound rows for expand panel
     const defaultHas = f.has_default_sound;
     let soundRowsHtml = `
+      <div class="sound-row announce-row">
+        <span class="sound-row-label">💬 Announcement (spoken on recognition)</span>
+        <div class="announce-input-wrap">
+          <input type="text" class="announce-input" placeholder="e.g. Welcome, John!"
+                 value="${escAttr(f.announcement_text)}" data-face="${escAttr(f.name)}" maxlength="200" />
+          <button class="announce-save" data-face="${escAttr(f.name)}">Save</button>
+        </div>
+      </div>
       <div class="sound-row">
         <span class="sound-row-label">🔊 Default (all cameras)</span>
         <label class="sound-upload-btn ${defaultHas ? 'has-sound' : ''}">
@@ -778,6 +840,23 @@ async function loadFaces() {
       panel.classList.toggle('open');
       toggle.classList.toggle('active', panel.classList.contains('open'));
     });
+
+    // announcement text save
+    const annInput = item.querySelector('.announce-input');
+    const annSave  = item.querySelector('.announce-save');
+    async function saveAnnouncement() {
+      const face = annInput.dataset.face;
+      const text = annInput.value.trim();
+      await fetch(`/faces/${encodeURIComponent(face)}/announcement`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text}),
+      });
+      annSave.textContent = 'Saved!';
+      annSave.classList.add('saved');
+      setTimeout(() => { annSave.textContent = 'Save'; annSave.classList.remove('saved'); }, 1500);
+    }
+    annSave.addEventListener('click', saveAnnouncement);
+    annInput.addEventListener('keydown', e => { if (e.key === 'Enter') saveAnnouncement(); });
 
     // sound uploads
     item.querySelectorAll('input[type=file]').forEach(inp => {

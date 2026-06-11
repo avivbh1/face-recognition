@@ -72,3 +72,25 @@ def face_names():
         return []
     return [d.name for d in sorted(FACES_DIR.iterdir())
             if d.is_dir() and (d / "embedding.npy").exists()]
+
+
+_ANNOUNCE_FILE = "announcement.txt"
+
+
+def get_announcement_text(name):
+    p = FACES_DIR / name / _ANNOUNCE_FILE
+    if p.exists():
+        return p.read_text(encoding="utf-8").strip()
+    return None
+
+
+def save_announcement_text(name, text):
+    d = FACES_DIR / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / _ANNOUNCE_FILE).write_text(text, encoding="utf-8")
+
+
+def delete_announcement_text(name):
+    p = FACES_DIR / name / _ANNOUNCE_FILE
+    if p.exists():
+        p.unlink()

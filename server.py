@@ -8,7 +8,9 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, send_from_directory, request, abort
 from verifier import FaceVerifier
 from face_db import (load_all, save_face, delete_face, face_names, FACES_DIR,
-                     get_face_sound_path, save_face_sound)
+                     get_face_sound_path, save_face_sound,
+                     get_announcement_text, save_announcement_text,
+                     delete_announcement_text)
 from camera_manager import (detect_cameras, load_config, save_config,
                              get_cam_sound_path, CAM_SOUNDS_DIR)
 
@@ -303,12 +305,13 @@ def status():
                     sound_url = f"/faces/{name}/sound"
 
         cameras.append({
-            "cam_id":        cid,
-            "label":         cfg.get("label", f"Camera {cid}"),
-            "face_detected": d["face_detected"],
-            "matched_name":  name,
-            "score":         d["score"],
-            "sound_url":     sound_url,
+            "cam_id":            cid,
+            "label":             cfg.get("label", f"Camera {cid}"),
+            "face_detected":     d["face_detected"],
+            "matched_name":      name,
+            "score":             d["score"],
+            "sound_url":         sound_url,
+            "announcement_text": get_announcement_text(name) if name else "",
         })
 
     return jsonify({"cameras": cameras, "enroll": e})
@@ -327,6 +330,7 @@ def list_faces_route():
             "photo_url":         f"/faces/{n}/photo",
             "has_default_sound": has_default,
             "cam_sounds":        cam_sounds,
+            "announcement_text": get_announcement_text(n) or "",
         })
     return jsonify(result)
 
@@ -373,6 +377,19 @@ def face_cam_sound(name, cam_id):
         if p.exists():
             return send_from_directory(p.parent, p.name)
     abort(404)
+
+
+@app.route("/faces/<name>/announcement", methods=["GET", "POST"])
+def face_announcement(name):
+    if request.method == "POST":
+        text = (request.json or {}).get("text", "").strip()
+        if text:
+            save_announcement_text(name, text)
+        else:
+            delete_announcement_text(name)
+        return jsonify({"ok": True})
+    # GET
+    return jsonify({"text": get_announcement_text(name) or ""})
 
 
 @app.route("/faces/<name>", methods=["DELETE"])
@@ -501,6 +518,12 @@ def update_settings():
     data = request.json or {}
     if "general_sound_type" in data:
         s["general_sound_type"] = data["general_sound_type"]
+    if "unknown_announcement_text" in data:
+        text = data["unknown_announcement_text"].strip()
+        if text:
+            s["unknown_announcement_text"] = text
+        else:
+            s.pop("unknown_announcement_text", None)
     save_settings(s)
     return jsonify({"ok": True})
 
