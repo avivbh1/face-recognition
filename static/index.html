@@ -574,7 +574,15 @@ function speak(text) {
   if (!window.speechSynthesis) return;
   const utt = new SpeechSynthesisUtterance(text);
   utt.rate = 1.0; utt.pitch = 1.0; utt.volume = 1.0;
-  speechSynthesis.speak(utt);
+  const voices = speechSynthesis.getVoices();
+  if (voices.length > 0) {
+    speechSynthesis.speak(utt);
+  } else {
+    // Voices not yet loaded (common on first page load in Chrome)
+    speechSynthesis.addEventListener('voiceschanged', () => {
+      speechSynthesis.speak(utt);
+    }, { once: true });
+  }
 }
 
 function playGeneralSound(label, isUnknown, camLabel) {
